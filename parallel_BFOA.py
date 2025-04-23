@@ -10,9 +10,9 @@ import matplotlib.pyplot as plt
 from fastaReader import fastaReader
 
 if __name__ == "__main__":
-    numeroDeBacterias = 3
+    numeroDeBacterias = 10
     numRandomBacteria =1
-    iteraciones = 3
+    iteraciones = 10
     tumbo = 2  # numero de gaps a insertar 
     nado = 4
     secuencias = list()
@@ -26,10 +26,10 @@ if __name__ == "__main__":
 
     globalNFE = 0  # numero de evaluaciones de la funcion objetivo
 
-    dAttr = 0.1  # 0.1
-    wAttr = 0.002  # 0.2
-    hRep = dAttr
-    wRep = .001  # 10
+    dAttr = 0.5
+    wAttr = 0.001
+    hRep = 0.5
+    wRep = 0.0005
 
     manager = Manager()
     numSec = len(secuencias)

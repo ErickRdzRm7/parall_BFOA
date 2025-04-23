@@ -24,6 +24,7 @@ class bacteria():
         self.tablaFitness = manager.list(range(numBacterias))
         self.granListaPares = manager.list(range(numBacterias))
         self.NFE = manager.list(range(numBacterias))
+        self.fitnessList = manager.list([0.0] * numBacterias) # AÃ±adir lista para almacenar fitness
 
     def resetListas(self, numBacterias):
         manager = Manager()
@@ -34,7 +35,8 @@ class bacteria():
         self.tablaFitness = manager.list(range(numBacterias))
         self.granListaPares = manager.list(range(numBacterias))
         self.NFE = manager.list(range(numBacterias))
-        
+        self.fitnessList = manager.list([0.0] * numBacterias)
+
         
   
     def cuadra(self, numSec, poblacion):
@@ -46,12 +48,12 @@ class bacteria():
             bacterTmp = list(bacterTmp)
             # print("bacterTmp: ", bacterTmp)
             bacterTmp = bacterTmp[:numSec]
-            # obtiene el tamaño de la secuencia más larga
+            # obtiene el tamao de la secuencia ms larga
             maxLen = 0
             for j in range(numSec):
                 if len(bacterTmp[j]) > maxLen:
                     maxLen = len(bacterTmp[j])
-                    #rellena con gaps las secuencias más cortas
+                    #rellena con gaps las secuencias ms cortas
                     for t in range(numSec):
                         gap_count = maxLen - len(bacterTmp[t])
                         if gap_count > 0:
@@ -59,14 +61,6 @@ class bacteria():
                             #actualiza la poblacion
                             poblacion[i] = tuple(bacterTmp)
                             
-            
-        
-        
-        
-        
-
-
-
     """metodo que recorre la matriz y elimina las columnas con gaps en todos los elementos"""
     def limpiaColumnas(self):
         i = 0
@@ -176,38 +170,36 @@ class bacteria():
 
 
     def compute_diff(self, args):
-        indexBacteria, otherBlosumScore, self.blosumScore, d, w = args
+        indexBacteria, otherBlosumScore, self.blosumScore, d, w, otherFitness, currentFitness = args
         diff = (self.blosumScore[indexBacteria] - otherBlosumScore) ** 2.0
+        # Incorporar la influencia del fitness
+        fitness_influence = (otherFitness - currentFitness) * 0.1  # Ejemplo de influencia, factor 0.1 ajustable
+        modified_diff = diff + fitness_influence
         self.NFE[indexBacteria] += 1
-        return d * numpy.exp(w * diff)
+        return d * numpy.exp(w * modified_diff)
 
-    def compute_cell_interaction(self, indexBacteria, d, w, atracTrue):
+    def compute_cell_interaction(self, indexBacteria, d, w, atracTrue, poblacion):
+        currentFitness = self.tablaFitness[indexBacteria]
         with Pool() as pool:
-            args = [(indexBacteria, otherBlosumScore, self.blosumScore, d, w) for otherBlosumScore in self.blosumScore]
+            args = [(indexBacteria, self.blosumScore[i], self.blosumScore, d, w, self.tablaFitness[i], currentFitness) for i in range(len(self.blosumScore))]
             results = pool.map(self.compute_diff, args)
-            pool.close()  # Close the pool to prevent any more tasks from being submitted
-            pool.join()   # Wait for the worker processes to exit
-    
+            pool.close()
+            pool.join()
+
         total = sum(results)
-    
+
         if atracTrue:
             self.tablaAtract[indexBacteria] = total
         else:
             self.tablaRepel[indexBacteria] = total
-        
-
   
-    def creaTablaAtract(self, poblacion, d, w):                   #lineal
+    def creaTablaAtract(self, poblacion, d, w):
         for indexBacteria in range(len(poblacion)):
-            self.compute_cell_interaction(indexBacteria,d, w, TRUE)
-            # print("invocando indexBacteria numero: ", indexBacteria)
-        # print("tablaAtract: ", self.tablaAtract)
+            self.compute_cell_interaction(indexBacteria, d, w, TRUE, poblacion)
 
-    def creaTablaRepel(self, poblacion, d, w):                   #lineal
+    def creaTablaRepel(self, poblacion, d, w):
         for indexBacteria in range(len(poblacion)):
-            self.compute_cell_interaction(indexBacteria,d, w, FALSE)
-            # print("invocando indexBacteria numero: ", indexBacteria)
-        # print("tablaAtract: ", self.tablaAtract)
+            self.compute_cell_interaction(indexBacteria, d, w, FALSE, poblacion)
     
     def creaTablasAtractRepel(self, poblacion, dAttr, wAttr, dRepel, wRepel):
         #invoca ambos metodos en paralelo
@@ -234,7 +226,8 @@ class bacteria():
             valorFitness =  valorBlsm + valorInteract
             
             self.tablaFitness[i] = valorFitness
-    
+            self.fitnessList[i] = valorFitness # Actualizar la lista de fitness
+
     def getNFE(self):
         return sum(self.NFE)
         
@@ -255,5 +248,3 @@ class bacteria():
         # print("Worst: ", worst,  "Blosum ",self.blosumScore[worst], "Fitness: ", self.tablaFitness[worst], "BlosumScore: ", self.blosumScore[worst], "Atract: ", self.tablaAtract[worst], "Repel: ", self.tablaRepel[worst], "Interaction: ", self.tablaInteraction[worst])
         #reemplaza la bacteria peor por una copia de la mejor
         poblacion[worst] = copy.deepcopy(poblacion[best])
-        
-        
