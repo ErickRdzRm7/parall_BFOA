@@ -5,7 +5,7 @@ class fastaReader():
     
 
     def __init__(self):
-        self.path = "C:\\secuenciasBFOA\\multiFasta.fasta"
+        self.path = "/Users/erick/Documents/parall_BFOA/multiFasta.fasta"
         
         self.seqs = list()
         self.names = list()
