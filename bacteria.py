@@ -1,250 +1,424 @@
 import copy
 import math
-from multiprocessing import Manager, Pool, managers
-from pickle import FALSE, TRUE
+from multiprocessing import Manager, Pool, Lock # Añadir Lock si es necesario para el caché
 from evaluadorBlosum import evaluadorBlosum
-import numpy
-from fastaReader import fastaReader
+import numpy as np # Usar np en lugar de numpy
 import random
-from copy import copy
-import copy
-import concurrent.futures
+import concurrent.futures # Asegúrate que esta importación esté presente
 
+# --- Función auxiliar para convertir alineamiento a hashable ---
+# (Puede estar fuera o dentro de la clase)
+def alignment_to_hashable(alignment):
+    # (Código sin cambios)
+    if isinstance(alignment, tuple): 
+        return alignment
+    return tuple(tuple(seq) for seq in alignment)
 
 class bacteria():
-    
+    # (__init__ sin cambios)
+    def __init__(self, numBacterias, fitness_cache, nfe_counter):
+        manager = Manager() 
+        self.numBacterias = numBacterias
+        self.blosumScore = manager.list([0.0] * numBacterias) 
+        self.tablaAtract = manager.list([0.0] * numBacterias)
+        self.tablaRepel = manager.list([0.0] * numBacterias)
+        self.tablaInteraction = manager.list([0.0] * numBacterias)
+        self.tablaFitness = manager.list([0.0] * numBacterias)
+        self.fitness_cache = fitness_cache 
+        self.globalNFE = nfe_counter 
+        self.evaluador = evaluadorBlosum() 
+        # self.cache_lock = Lock()
 
-    def __init__(self, numBacterias):
-        # manager = Manager()
-        manager = Manager()
-        self.blosumScore = manager.list(range(numBacterias))
-        self.tablaAtract = manager.list(range(numBacterias))
-        self.tablaRepel = manager.list(range(numBacterias))
-        self.tablaInteraction = manager.list(range(numBacterias))
-        self.tablaFitness = manager.list(range(numBacterias))
-        self.granListaPares = manager.list(range(numBacterias))
-        self.NFE = manager.list(range(numBacterias))
-        self.fitnessList = manager.list([0.0] * numBacterias) # Añadir lista para almacenar fitness
-
-    def resetListas(self, numBacterias):
-        manager = Manager()
-        self.blosumScore = manager.list(range(numBacterias))
-        self.tablaAtract = manager.list(range(numBacterias))
-        self.tablaRepel = manager.list(range(numBacterias))
-        self.tablaInteraction = manager.list(range(numBacterias))
-        self.tablaFitness = manager.list(range(numBacterias))
-        self.granListaPares = manager.list(range(numBacterias))
-        self.NFE = manager.list(range(numBacterias))
-        self.fitnessList = manager.list([0.0] * numBacterias)
-
-        
-  
+    # (cuadra sin cambios)
     def cuadra(self, numSec, poblacion):
-        #ciclo para recorrer poblacion
-        for i in range(len(poblacion)):
-            #obtiene las secuencias de la bacteria
-            bacterTmp = poblacion[i]
-            # print("bacterTmp: ", bacterTmp)
-            bacterTmp = list(bacterTmp)
-            # print("bacterTmp: ", bacterTmp)
-            bacterTmp = bacterTmp[:numSec]
-            # obtiene el tamao de la secuencia ms larga
-            maxLen = 0
-            for j in range(numSec):
-                if len(bacterTmp[j]) > maxLen:
-                    maxLen = len(bacterTmp[j])
-                    #rellena con gaps las secuencias ms cortas
-                    for t in range(numSec):
-                        gap_count = maxLen - len(bacterTmp[t])
-                        if gap_count > 0:
-                            bacterTmp[t].extend(["-"] * gap_count)
-                            #actualiza la poblacion
-                            poblacion[i] = tuple(bacterTmp)
-                            
-    """metodo que recorre la matriz y elimina las columnas con gaps en todos los elementos"""
-    def limpiaColumnas(self):
-        i = 0
-        while i < len(self.matrix.seqs[0]):
-            if self.gapColumn(i):
-                self.deleteCulmn(i)
-            else:
-                i += 1
-  
-                
-            
-        """metodo para eliminar un elemento especifico en cada secuencia"""
-    def deleteCulmn(self, pos):
-        for i in range(len(self.matrix.seqs)):
-            self.matrix.seqs[i] = self.matrix.seqs[i][:pos] + self.matrix.seqs[i][pos+1:]
+        # ... (código anterior de cuadra) ...
+        try:
+            poblacion_list = [list(b) for b in poblacion]
+        except TypeError: 
+             poblacion_list = poblacion 
+        maxLen = 0
+        for i in range(len(poblacion_list)):
+            bacterTmp = poblacion_list[i]
+            if not bacterTmp: continue 
+            try:
+                current_max = max(len(s) for s in bacterTmp if s) if any(bacterTmp) else 0
+            except ValueError: 
+                 current_max = 0
+            except Exception as e:
+                 print(f"Error calculando maxLen en cuadra para bacteria {i}: {e}")
+                 current_max = 0 
+            if current_max > maxLen:
+                maxLen = current_max
+        for i in range(len(poblacion_list)):
+            bacterTmp = poblacion_list[i]
+            if not bacterTmp: continue
+            num_seqs_in_bact = len(bacterTmp) 
+            for t in range(num_seqs_in_bact): 
+                 if not isinstance(bacterTmp[t], list):
+                     bacterTmp[t] = list(bacterTmp[t])
+                 gap_count = maxLen - len(bacterTmp[t])
+                 if gap_count > 0:
+                     bacterTmp[t].extend(["-"] * gap_count)
+            poblacion[i] = tuple(tuple(s) for s in bacterTmp) 
 
-
-
-    """metodo para saber si alguna columna de self.matrix tiene  gap en todos los elementos"""
-    def gapColumn(self, col):
-        for i in range(len(self.matrix.seqs)):
-            if self.matrix.seqs[i][col] != "-":
-                return False
-        return True
-    
-    
-
+    # (tumbo sin cambios)
     def tumbo(self, numSec, poblacion, numGaps):
-        #inserta un gap en una posicion aleatoria de una secuencia aleatoria
-        #recorre la poblacion
+        # ... (código anterior de tumbo) ...
         for i in range(len(poblacion)):
-            #obtiene las secuencias de la bacteria
-            bacterTmp = poblacion[i]
-            bacterTmp = list(bacterTmp)
-            # bacterTmp = bacterTmp[:numSec]
-            #ciclo para insertar gaps
-            for j in range(numGaps):
-                #selecciona secuencia
-                seqnum = random.randint(0, len(bacterTmp)-1)
-                #selecciona posicion
-                pos = random.randint(0, len(bacterTmp[seqnum]))
-                part1 = bacterTmp[seqnum][:pos]
-                part2 = bacterTmp[seqnum][pos:]
-                temp = part1 + ["-"] + part2
-                bacterTmp[seqnum] = temp
-                #actualiza la poblacion
-                poblacion[i] = tuple(bacterTmp)
-        
-       
-            
-    def creaGranListaPares(self, poblacion):   
-        # granListaPares = list(range(len(poblacion)))
-        #ciclo para recorrer poblacion
-        for i in range(len(poblacion)):  #recorre poblacion
-            pares = list()
-            bacterTmp = poblacion[i]
-            bacterTmp = list(bacterTmp)
-            #ciclo para recorrer secuencias
-            for j in range(len(bacterTmp)):     #recorre secuencias de bacteria
-                column = self.getColumn(bacterTmp, j)
-                pares = pares + self.obtener_pares_unicos(column)
-            self.granListaPares[i] = pares
-            # print("Bacteria: ", i, " Pares: ", pares)
-            
-        # return self.granListaPares
+            try:
+                 bacterTmp = [list(seq) for seq in poblacion[i]] 
+            except TypeError:
+                 print(f"Error convirtiendo bacteria {i} a lista de listas en tumbo. Saltando.")
+                 continue 
+            for _ in range(numGaps):
+                if not bacterTmp: continue 
+                try:
+                    seqnum = random.randint(0, len(bacterTmp)-1)
+                    pos = random.randint(0, len(bacterTmp[seqnum]))
+                    bacterTmp[seqnum].insert(pos, "-")
+                except IndexError:
+                     print(f"Error de índice en tumbo para bacteria {i}. Saltando inserción de gap.")
+                     continue 
+                except Exception as e:
+                     print(f"Error inesperado en tumbo para bacteria {i}: {e}. Saltando inserción de gap.")
+                     continue
+            poblacion[i] = tuple(tuple(s) for s in bacterTmp)
+
+    # (_get_pairs_for_eval sin cambios)
+    def _get_pairs_for_eval(self, alignment):
+        # ... (código anterior de _get_pairs_for_eval) ...
+        pares = []
+        if not alignment or not alignment[0]: 
+            return [] 
+        try:
+            num_seqs = len(alignment)
+            len_seq = len(alignment[0]) 
+            if not all(len(s) == len_seq for s in alignment):
+                 print(f"Advertencia: Longitudes inconsistentes detectadas en _get_pairs_for_eval. Longitudes: {[len(s) for s in alignment]}")
+            for col_idx in range(len_seq):
+                columna = []
+                for row_idx in range(num_seqs):
+                     try:
+                          columna.append(alignment[row_idx][col_idx])
+                     except IndexError:
+                          print(f"Error de índice recuperando columna {col_idx}, fila {row_idx}. Usando '-' por defecto.")
+                          columna.append("-") 
+                for i in range(num_seqs):
+                    for j in range(i + 1, num_seqs):
+                        par = tuple(sorted((columna[i], columna[j])))
+                        pares.append(par)
+        except Exception as e:
+             print(f"Error inesperado en _get_pairs_for_eval: {e}")
+             return [] 
+        return pares 
+
+    # (_calculate_blosum_score sin cambios)
+    def _calculate_blosum_score(self, alignment_hashable):
+        # ... (código anterior de _calculate_blosum_score) ...
+         alignment_list = [list(s) for s in alignment_hashable]
+         pares = self._get_pairs_for_eval(alignment_list)
+         score = 0
+         for par in pares:
+             try:
+                  score += self.evaluador.getScore(par[0], par[1])
+             except Exception as e:
+                  print(f"Error obteniendo score para par {par}: {e}")
+                  score += -10 
+         return score
+
+    # (evaluaBlosumConCache sin cambios)
+    def evaluaBlosumConCache(self, poblacion):
+        # ... (código anterior de evaluaBlosumConCache) ...
+        scores = [0.0] * len(poblacion)
+        for i in range(len(poblacion)):
+            try:
+                alignment = poblacion[i] 
+                if not alignment or not all(alignment):
+                    print(f"Advertencia: Alineamiento inválido o vacío para bacteria {i}. Usando score 0.")
+                    scores[i] = 0.0 
+                    continue 
+            except Exception as e:
+                 print(f"Error accediendo a la bacteria {i} en evaluaBlosumConCache: {e}. Usando score 0.")
+                 scores[i] = 0.0
+                 continue
+            try:
+                if alignment in self.fitness_cache:
+                    scores[i] = self.fitness_cache[alignment]
+                else:
+                    score = self._calculate_blosum_score(alignment)
+                    self.globalNFE.value += 1 
+                    self.fitness_cache[alignment] = score 
+                    scores[i] = score
+            except TypeError as e:
+                 print(f"Error de tipo (posiblemente no hashable) con alineamiento para bacteria {i}: {e}")
+                 scores[i] = self._calculate_blosum_score(alignment) 
+            except Exception as e:
+                 print(f"Error inesperado durante cache/cálculo para bacteria {i}: {e}")
+                 scores[i] = 0.0 
+        try:
+            self.blosumScore[:] = scores
+        except Exception as e:
+             print(f"Error actualizando self.blosumScore: {e}")
+
+    # (evaluaBlosumInicial sin cambios)
+    def evaluaBlosumInicial(self, poblacion):
+        print("  (Llamando a evaluaBlosumConCache para evaluación inicial)")
+        self.evaluaBlosumConCache(poblacion)
+
+    # --- Métodos de Interacción ---
     
-
-
-    def evaluaFila(self, fila, num):
-        evaluador = evaluadorBlosum()
-        score = 0
-        for par in fila:
-            score += evaluador.getScore(par[0], par[1])
-        self.blosumScore[num] = score
-    
-    def evaluaBlosum(self):
-        with Pool() as pool:
-            args = [(copy.deepcopy(self.granListaPares[i]), i) for i in range(len(self.granListaPares))]
-            pool.starmap(self.evaluaFila, args)
-
-
-    def getColumn(self, bacterTmp, colNum):
-        column = []
-        #obtiene las secuencias de la bacteria
-        # bacterTmp = poblacion[bactNum]
-        # bacterTmp = list(bacterTmp)
-        #obtiene el caracter de cada secuencia en la columna
-        for i in range(len(bacterTmp)):
-            column.append(bacterTmp[i][colNum])
-        return column
-            
-        
-            
-    
-
-    def obtener_pares_unicos(self, columna):
-        pares_unicos = set()
-        for i in range(len(columna)):
-            for j in range(i+1, len(columna)):
-                par = tuple(sorted([columna[i], columna[j]]))
-                pares_unicos.add(par)
-        return list(pares_unicos)  
-
-    #------------------------------------------------------------Atract y Repel lineal
-    
-  
-
-
+    # (compute_diff con la fórmula CORREGIDA exp(-w*diff))
     def compute_diff(self, args):
-        indexBacteria, otherBlosumScore, self.blosumScore, d, w, otherFitness, currentFitness = args
-        diff = (self.blosumScore[indexBacteria] - otherBlosumScore) ** 2.0
-        # Incorporar la influencia del fitness
-        fitness_influence = (otherFitness - currentFitness) * 0.1  # Ejemplo de influencia, factor 0.1 ajustable
-        modified_diff = diff + fitness_influence
-        self.NFE[indexBacteria] += 1
-        return d * numpy.exp(w * modified_diff)
+        # ... (código CORREGIDO de compute_diff de la respuesta anterior) ...
+        indexBacteria, otherBlosumScore, allBlosumScores, d, w, otherFitness, currentFitness = args
+        interaction_value = 0.0 
+        try:
+            score_self = allBlosumScores[indexBacteria]
+            score_other = otherBlosumScore
+            if score_self is None or score_other is None:
+                 diff = float('inf') 
+            else:
+                 diff = (score_self - score_other) ** 2.0
+            if w < 0:
+                 print(f"Advertencia: 'w' negativo ({w}) pasado a compute_diff. Usando valor absoluto.")
+                 w = abs(w)
+            elif w == 0:
+                 interaction_value = d 
+                 return interaction_value 
+            if diff == float('inf'):
+                interaction_value = 0.0
+            elif diff == 0:
+                interaction_value = d
+            else:
+                exponent = -w * diff
+                interaction_value = d * np.exp(exponent)
+            if not np.isfinite(interaction_value):
+                 interaction_value = 0.0
+        except IndexError:
+             print(f"Error de índice en compute_diff accediendo a scores. Usando interacción 0.")
+             interaction_value = 0.0
+        except OverflowError:
+             print(f"Error de overflow en compute_diff (d={d}, w={w}, diff={diff}). Usando 0.")
+             interaction_value = 0.0
+        except Exception as e:
+             print(f"Error inesperado en compute_diff: {e}")
+             interaction_value = 0.0 
+        return interaction_value
 
+    # (compute_cell_interaction sin cambios)
     def compute_cell_interaction(self, indexBacteria, d, w, atracTrue, poblacion):
-        currentFitness = self.tablaFitness[indexBacteria]
-        with Pool() as pool:
-            args = [(indexBacteria, self.blosumScore[i], self.blosumScore, d, w, self.tablaFitness[i], currentFitness) for i in range(len(self.blosumScore))]
-            results = pool.map(self.compute_diff, args)
-            pool.close()
-            pool.join()
+        # ... (código anterior de compute_cell_interaction) ...
+        total = 0.0 
+        try:
+            if indexBacteria >= len(self.tablaFitness) or indexBacteria >= len(self.blosumScore):
+                 print(f"Error: Índice {indexBacteria} fuera de rango para scores en compute_cell_interaction.")
+                 return 
+            currentFitness = self.tablaFitness[indexBacteria] 
+            currentBlosum = self.blosumScore[indexBacteria]
+            num_bacterias = len(self.blosumScore) 
+            if num_bacterias == 0: return 
+            blosum_scores_list = list(self.blosumScore)
+            fitness_list = list(self.tablaFitness)
+            args_list = [
+                (indexBacteria, blosum_scores_list[i], blosum_scores_list, d, w, fitness_list[i], currentFitness) 
+                for i in range(num_bacterias) 
+            ]
+            if num_bacterias < 4: 
+                 results = [self.compute_diff(arg) for arg in args_list]
+            else:
+                try:
+                    with Pool(processes=min(4, num_bacterias)) as pool: 
+                        results = pool.map(self.compute_diff, args_list)
+                except Exception as e:
+                    print(f"Error en Pool para interacción (Bacteria {indexBacteria}): {e}")
+                    print("  (Intentando cálculo serial como fallback...)")
+                    results = [self.compute_diff(arg) for arg in args_list] 
+            total = sum(results)
+            if not np.isfinite(total):
+                 print(f"Advertencia: Suma de interacción no finita para bacteria {indexBacteria}. Usando 0.")
+                 total = 0.0 
+        except Exception as e:
+            print(f"Error inesperado en compute_cell_interaction para bacteria {indexBacteria}: {e}")
+            total = 0.0 
+        try:
+            if atracTrue: 
+                self.tablaAtract[indexBacteria] = total
+            else:
+                self.tablaRepel[indexBacteria] = total
+        except IndexError:
+             print(f"Error de índice al actualizar tabla Atract/Repel para bacteria {indexBacteria}.")
+        except Exception as e:
+             print(f"Error inesperado actualizando tabla Atract/Repel para bacteria {indexBacteria}: {e}")
 
-        total = sum(results)
 
-        if atracTrue:
-            self.tablaAtract[indexBacteria] = total
-        else:
-            self.tablaRepel[indexBacteria] = total
-  
+    # (creaTablaAtract sin cambios)
     def creaTablaAtract(self, poblacion, d, w):
-        for indexBacteria in range(len(poblacion)):
-            self.compute_cell_interaction(indexBacteria, d, w, TRUE, poblacion)
+        # ... (código anterior de creaTablaAtract) ...
+        pop_list = list(poblacion) 
+        for indexBacteria in range(len(pop_list)):
+             self.compute_cell_interaction(indexBacteria, d, w, True, pop_list) 
 
+    # (creaTablaRepel sin cambios)
     def creaTablaRepel(self, poblacion, d, w):
-        for indexBacteria in range(len(poblacion)):
-            self.compute_cell_interaction(indexBacteria, d, w, FALSE, poblacion)
-    
-    def creaTablasAtractRepel(self, poblacion, dAttr, wAttr, dRepel, wRepel):
-        #invoca ambos metodos en paralelo
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.submit(self.creaTablaAtract, poblacion, dAttr, wAttr)
-            executor.submit(self.creaTablaRepel, poblacion, dRepel, wRepel)
-            
+        # ... (código anterior de creaTablaRepel) ...
+         pop_list = list(poblacion) 
+         for indexBacteria in range(len(pop_list)):
+              self.compute_cell_interaction(indexBacteria, d, w, False, pop_list)
+
+    # (creaTablasAtractRepel sin cambios - usando versión serial)
+    def creaTablasAtractRepel(self, poblacion, dAttr, wAttr, hRep, wRepel):
+        # ... (código anterior de creaTablasAtractRepel - versión serial) ...
+         print("    Calculando Atracción/Repulsión (Serial)...")
+         try:
+             self.creaTablaAtract(poblacion, dAttr, wAttr) 
+             self.creaTablaRepel(poblacion, hRep, wRepel) 
+             print("    Cálculos de Atracción/Repulsión completados.")
+         except Exception as e:
+             print(f"Error durante el cálculo serial de Atracción/Repulsión: {e}")
+             print("Warning: Fitness podría ser incorrecto. Tablas de interacción pueden estar incompletas.")
 
 
-
-            #-----------------------------------------------------------
-            
+    # (creaTablaInteraction sin cambios)
     def creaTablaInteraction(self):
-        #llena la tabla con la suma de atract y repel
-        for i in range(len(self.tablaAtract)):
-            self.tablaInteraction[i] = self.tablaAtract[i] + self.tablaRepel[i]
+        # ... (código anterior de creaTablaInteraction) ...
+        try:
+            len_atract = len(self.tablaAtract)
+            len_repel = len(self.tablaRepel)
+            target_len = self.numBacterias
+            interaction_results = [0.0] * target_len
+            for i in range(target_len):
+                atract = self.tablaAtract[i] if i < len_atract else 0.0
+                repel = self.tablaRepel[i] if i < len_repel else 0.0
+                sum_interact = atract + repel
+                if not np.isfinite(sum_interact):
+                     sum_interact = 0.0
+                interaction_results[i] = sum_interact
+            self.tablaInteraction[:] = interaction_results
+        except Exception as e:
+            print(f"Error en creaTablaInteraction: {e}")
+            self.tablaInteraction[:] = [0.0] * self.numBacterias
 
+    # (creaTablaFitness sin cambios)
     def creaTablaFitness(self):
-        #llena la tabla con la suma de interaction y blosumScore
-        for i in range(len(self.tablaInteraction)):
-            valorBlsm = self.blosumScore[i]
-            valorInteract = self.tablaInteraction[i]
-            #suma ambos valores
-            valorFitness =  valorBlsm + valorInteract
-            
-            self.tablaFitness[i] = valorFitness
-            self.fitnessList[i] = valorFitness # Actualizar la lista de fitness
+        # ... (código anterior de creaTablaFitness) ...
+         try:
+             len_blosum = len(self.blosumScore)
+             len_interact = len(self.tablaInteraction)
+             target_len = self.numBacterias
+             fitness_results = [0.0] * target_len
+             for i in range(target_len):
+                 valorBlsm = self.blosumScore[i] if i < len_blosum else 0.0
+                 valorInteract = self.tablaInteraction[i] if i < len_interact else 0.0
+                 if not np.isfinite(valorBlsm):
+                      valorBlsm = 0.0
+                 if not np.isfinite(valorInteract):
+                      valorInteract = 0.0
+                 fitness_results[i] = valorBlsm + valorInteract
+             self.tablaFitness[:] = fitness_results
+         except Exception as e:
+              print(f"Error en creaTablaFitness: {e}")
+              self.tablaFitness[:] = [-float('inf')] * self.numBacterias
 
+    # (getNFE sin cambios)
     def getNFE(self):
-        return sum(self.NFE)
-        
-        
-    def obtieneBest(self, globalNFE):
-        bestIdx = 0
-        for i in range(len(self.tablaFitness)):
-            if self.tablaFitness[i] > self.tablaFitness[bestIdx]:
-                bestIdx = i
-        print("-------------------   Best: ", bestIdx, " Fitness: ", self.tablaFitness[bestIdx], "BlosumScore ",  self.blosumScore[bestIdx], "Interaction: ", self.tablaInteraction[bestIdx], "NFE: ", globalNFE)
-        return bestIdx, self.tablaFitness[bestIdx]
+        # ... (código anterior de getNFE) ...
+        try:
+            return self.globalNFE.value
+        except Exception as e:
+             print(f"Error accediendo a NFE global: {e}")
+             return -1 
 
-    def replaceWorst(self, poblacion, best):
-        worst = 0
-        for i in range(len(self.tablaFitness)):
-            if self.tablaFitness[i] < self.tablaFitness[worst]:
-                worst = i
-        # print("Worst: ", worst,  "Blosum ",self.blosumScore[worst], "Fitness: ", self.tablaFitness[worst], "BlosumScore: ", self.blosumScore[worst], "Atract: ", self.tablaAtract[worst], "Repel: ", self.tablaRepel[worst], "Interaction: ", self.tablaInteraction[worst])
-        #reemplaza la bacteria peor por una copia de la mejor
-        poblacion[worst] = copy.deepcopy(poblacion[best])
+    # (obtieneBest sin cambios)
+    def obtieneBest(self, current_global_nfe):
+        # ... (código anterior de obtieneBest) ...
+         bestIdx = -1
+         best_fitness_val = -float('inf') 
+         try:
+             fitness_list = list(self.tablaFitness) 
+             if not fitness_list: 
+                  print("Advertencia: tablaFitness vacía en obtieneBest.")
+                  return -1, -float('inf')
+             bestIdx = 0
+             for idx_init, f_init in enumerate(fitness_list):
+                  if np.isfinite(f_init):
+                       bestIdx = idx_init
+                       best_fitness_val = f_init
+                       break
+             else: 
+                  print("Advertencia: No se encontró ningún fitness finito válido.")
+                  return 0, fitness_list[0] if fitness_list else -float('inf') 
+             for i in range(bestIdx + 1, len(fitness_list)):
+                  current_val = fitness_list[i]
+                  if np.isfinite(current_val) and current_val > best_fitness_val:
+                      best_fitness_val = current_val
+                      bestIdx = i
+             best_blosum = self.blosumScore[bestIdx] if bestIdx < len(self.blosumScore) else 'N/A'
+             best_interact = self.tablaInteraction[bestIdx] if bestIdx < len(self.tablaInteraction) else 'N/A'
+             if bestIdx != -1:
+                  print(f"--- Mejor Bacteria Actual: Índice={bestIdx}, Fitness={best_fitness_val:.4f} (Blosum={best_blosum}, Interact={best_interact}), NFE Total={current_global_nfe} ---")
+         except Exception as e:
+              print(f"Error en obtieneBest: {e}")
+              return -1, -float('inf') 
+         return bestIdx, best_fitness_val
+
+    # (replaceWorst sin cambios)
+    def replaceWorst(self, poblacion, bestIdx):
+        # ... (código anterior de replaceWorst) ...
+        worstIdx = -1
+        worst_fitness_val = float('inf') 
+        try:
+            fitness_list = list(self.tablaFitness)
+            if not fitness_list or bestIdx < 0 or bestIdx >= len(poblacion): 
+                 print("Advertencia: No se puede ejecutar replaceWorst (datos inválidos o bestIdx fuera de rango).")
+                 return 
+            worstIdx = 0
+            for idx_init, f_init in enumerate(fitness_list):
+                 if np.isfinite(f_init):
+                      worstIdx = idx_init
+                      worst_fitness_val = f_init
+                      break
+            else: 
+                 print("Advertencia: No se encontró ningún fitness finito válido para determinar el peor.")
+                 return 
+            for i in range(worstIdx + 1, len(fitness_list)):
+                 current_val = fitness_list[i]
+                 if np.isfinite(current_val) and current_val < worst_fitness_val:
+                     worst_fitness_val = current_val
+                     worstIdx = i
+            if worstIdx != -1 and worstIdx != bestIdx: 
+                print(f"    Reemplazando peor bacteria (Índice {worstIdx}, Fitness {worst_fitness_val:.4f}) con copia de la mejor (Índice {bestIdx}).")
+                poblacion[worstIdx] = poblacion[bestIdx] 
+                try:
+                    self.blosumScore[worstIdx] = self.blosumScore[bestIdx]
+                    self.tablaFitness[worstIdx] = self.tablaFitness[bestIdx]
+                    self.tablaInteraction[worstIdx] = self.tablaInteraction[bestIdx]
+                    self.tablaAtract[worstIdx] = self.tablaAtract[bestIdx]
+                    self.tablaRepel[worstIdx] = self.tablaRepel[bestIdx]
+                except IndexError:
+                     print(f"Advertencia: Error de índice al copiar scores durante replaceWorst para índice {worstIdx}.")
+                except Exception as e:
+                     print(f"Error inesperado copiando scores en replaceWorst: {e}")
+            elif worstIdx == bestIdx:
+                print(f"    La mejor bacteria (Índice {bestIdx}) es también la peor. No se realiza reemplazo.")
+        except Exception as e:
+             print(f"Error en replaceWorst: {e}")
+
+
+    # --- 5. MÉTODO AÑADIDO PARA OBTENER EL MEJOR ALINEAMIENTO ---
+    def get_best_alignment(self, bestIdx, poblacion):
+        """Recupera el alineamiento de la mejor bacteria y lo formatea como lista de strings."""
+        # Verificar si el índice es válido
+        if 0 <= bestIdx < len(poblacion):
+            try:
+                # El alineamiento se almacena como tupla de tuplas de caracteres
+                alignment_tuple = poblacion[bestIdx] 
+                # Convertir a lista de strings para salida/visualización
+                alignment_strings = ["".join(seq) for seq in alignment_tuple]
+                return alignment_strings
+            except Exception as e:
+                print(f"Error recuperando/formateando el mejor alineamiento para índice {bestIdx}: {e}")
+                return None # Devolver None si hay error
+        else:
+            print(f"Error: Índice del mejor ({bestIdx}) fuera de rango para la población.")
+            return None # Devolver None si el índice no es válido
+    # -----------------------------------------------------------

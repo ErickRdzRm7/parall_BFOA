@@ -19,7 +19,3 @@ class evaluadorBlosum():
     
     
     pass
-
-
-
-
