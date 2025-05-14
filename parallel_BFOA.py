@@ -175,8 +175,6 @@ def initialize_population(sequences: List[List[str]], population_shared: List, p
         traceback.print_exc()
         sys.exit(1)
 
-    # Convertir la población mutable a tupla de tuplas para la lista compartida
-    # Asegurarse de que no haya None en la lista mutable antes de convertir
     converted_population = []
     for b in initial_population_mutable:
          if b is not None:
@@ -203,9 +201,6 @@ def initialize_population(sequences: List[List[str]], population_shared: List, p
 
     print(f"Población inicial de {pop_size} bacterias creada y cuadrada.")
 
-
-# Helper function to evaluate a single bacterium/alignment
-# Ajustada para usar el nuevo método evaluaSingleBlosumWithCache
 def evaluate_single_alignment_blosum(op_bacterial: bacteria, alignment_tuple: Optional[Tuple[Tuple[str, ...], ...]]) -> float:
     """Evalúa el score BLOSUM de un solo alineamiento usando el caché y NFE."""
     if alignment_tuple is None:
@@ -234,10 +229,8 @@ def evaluate_population(op_bacterial: bacteria, poblacion_shared: List) -> Optio
              # Llenar la tabla de fitness con -inf si no hay bacterias válidas
              op_bacterial.tablaFitness[:] = [-float('inf')] * op_bacterial.numBacterias
              return list(op_bacterial.tablaFitness) # Retornar la lista de -inf
+        
 
-
-        # evaluaBlosumConCache espera el Manager.list (o una lista de tuplas de tuplas)
-        # Le pasamos la lista compartida, manejando los posibles None dentro del método si es necesario.
         op_bacterial.evaluaBlosumConCache(poblacion_shared)
 
         # creaTablasAtractRepel espera el Manager.list
@@ -247,8 +240,6 @@ def evaluate_population(op_bacterial: bacteria, poblacion_shared: List) -> Optio
         # creaTablaFitness espera el Manager.list
         op_bacterial.creaTablaFitness(poblacion_shared) # Esto debería generar los valores de fitness total
 
-        # Retornar una copia local de la lista de fitness compartida
-        # Asegurarse de que el tamaño de la lista retornada coincida con el tamaño de la población esperada (S)
         fitness_list_result = list(op_bacterial.tablaFitness)
         if len(fitness_list_result) != op_bacterial.numBacterias:
              print(f"Advertencia: Tamaño de la lista de fitness retornada ({len(fitness_list_result)}) no coincide con numBacterias ({op_bacterial.numBacterias}).")
@@ -273,16 +264,10 @@ def evaluate_population(op_bacterial: bacteria, poblacion_shared: List) -> Optio
         op_bacterial.tablaFitness[:] = [-float('inf')] * op_bacterial.numBacterias # Llenar la tabla de fitness con -inf
         return list(op_bacterial.tablaFitness) # Retornar la lista de -inf para indicar fallo
 
-
-# Ajustada para operar sobre Manager.list compartido
 def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
                         num_seqs: int, tumbo_gaps: int, Ns: int, # Added Ns parameter
                         salud_acumulada: List[float], # Lista local, NO compartida
                         step_label: str) -> Tuple[bool, float, int]:
-    """
-    Executes one complete chemotaxis step for the entire population.
-    This includes Tumble, Swim (Ns steps), and Acceptance/Rejection based on fitness.
-    """
     iter_start_time = time.time()
     global globalNFE_shared
 
@@ -294,13 +279,7 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
          while len(salud_acumulada) > pop_size: salud_acumulada.pop()
          # Retornar valores por defecto para paso fallido
          return False, -float('inf'), globalNFE_shared.value if globalNFE_shared else -1
-
-
-    # Get the current fitness of the population *before* any tumble/swim attempts
-    # Esto es el fitness TOTAL (Blosum + Interacción) del estado actual.
-    # evaluate_population ya maneja los posibles None en la lista compartida.
-    # Es crucial que evaluate_population se ejecute aquí para actualizar blosumScore
-    # y tablaFitness para el estado actual antes de iniciar Tumble/Swim.
+ 
     original_total_fitnesses = evaluate_population(op_bacterial, poblacion_shared)
     if not original_total_fitnesses or len(original_total_fitnesses) != pop_size:
         print(f"Error: No se pudieron obtener fitness total de la población actual para comparación en {step_label}.")
@@ -309,22 +288,17 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
         while len(salud_acumulada) > pop_size: salud_acumulada.pop()
         return False, -float('inf'), globalNFE_shared.value if globalNFE_shared else -1
 
-    # Obtener los Blosum Scores ORIGINALES para la comparación en Tumble/Swim
-    # Asegurarse de que blosumScore tenga el tamaño correcto antes de copiar
     if len(op_bacterial.blosumScore) != pop_size:
          print(f"Error: blosumScore interno ({len(op_bacterial.blosumScore)}) no tiene tamaño {pop_size} antes de CH step {step_label}.")
          # Esto indica un problema serio en evaluate_population o inicialización.
-         # Asegurarse de que salud_acumulada tenga el tamaño correcto antes de retornar
          while len(salud_acumulada) < pop_size: salud_acumulada.append(-float('inf'))
          while len(salud_acumulada) > pop_size: salud_acumulada.pop()
          return False, -float('inf'), globalNFE_shared.value if globalNFE_shared else -1
 
     original_blosum_scores = list(op_bacterial.blosumScore) # Copia local de los Blosum scores actuales
 
-
     # Lista temporal para almacenar los nuevos estados (tupla de tuplas o None) para este paso
     next_poblacion_states: List[Optional[Tuple[Tuple[str, ...], ...]]] = [None] * pop_size
-
 
     for i in range(pop_size):
         # Obtener el estado original y sus scores para la bacteria i
@@ -332,9 +306,8 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
         original_blosum_score_i = original_blosum_scores[i] # Blosum score original de esta bacteria
         original_total_fitness_i = original_total_fitnesses[i] # Fitness total original de esta bacteria
 
-
         if bacteria_original_tuple is None or not np.isfinite(original_total_fitness_i):
-            # print(f"Advertencia: Bacteria {i} es None o tiene fitness no finito ({original_total_fitness_i:.2f}) en CH step {step_label}. Manteniendo None/estado.")
+
             next_poblacion_states[i] = bacteria_original_tuple # Mantener como None o el estado que sea
             # La salud acumulada para esta bacteria no se modificará aquí, se actualizará al final del paso CH.
             continue # Pasar a la siguiente bacteria
@@ -346,13 +319,10 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
              print(f"Error convirtiendo bacteria {i} a mutable en CH step {step_label}: {e}. Manteniendo estado original.")
              next_poblacion_states[i] = bacteria_original_tuple # Mantener el estado original (tupla de tuplas)
              continue # Pasar a la siguiente bacteria
-
-
+        
         # El mejor estado mutable y su score BLOSUM encontrado *para esta bacteria* en este paso quimiotáctico.
-        # Inicialmente, es el estado original y su score Blosum.
         best_state_for_bacterium_i_mutable = copy.deepcopy(bacteria_original_mutable)
         best_blosum_score_for_bacterium_i = original_blosum_score_i
-
 
         # --- 1. Tumble ---
         # tumbo opera en una copia mutable y devuelve una nueva copia mutable
@@ -397,15 +367,6 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
                 else:
                      # Dejar de nadar si no mejora (o es no finito)
                      break
-        # Else (tumble no mejoró o fue no finito), la bacteria permanece en su estado original,
-        # best_state_for_bacterium_i_mutable sigue siendo el estado original mutable
-        # best_blosum_score_for_bacterium_i sigue siendo original_blosum_score_i
-
-        # Después de Tumble/Swim, el estado final aceptado para esta bacteria en este paso CH es
-        # best_state_for_bacterium_i_mutable.
-
-        # Almacenar el estado final aceptado (como tupla de tuplas) en la lista temporal next_poblacion_states
-        # Asegurarse de que el estado mutable no esté vacío antes de convertir
         if best_state_for_bacterium_i_mutable and best_state_for_bacterium_i_mutable[0]:
              next_poblacion_states[i] = tuple(tuple(seq) for seq in best_state_for_bacterium_i_mutable)
         else:
@@ -413,25 +374,12 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
              print(f"Advertencia: Mejor estado mutable para bacteria {i} es inválido al final del CH step. Manteniendo estado original.")
              next_poblacion_states[i] = poblacion_shared[i]
 
-
-        # NOTA: La salud acumulada se actualiza *después* de que todas las bacterias
-        # han decidido su estado final para este paso CH y la población compartida se actualiza.
-
-    # --- Fin del bucle sobre bacterias ---
-    # Ahora `next_poblacion_states` contiene el estado final (como tupla de tuplas o None) para cada bacteria
-    # después de sus decisiones de Tumble/Swim en este paso CH.
-
-    # Actualizar la población compartida con los nuevos estados aceptados por cada bacteria
-    # Asegurarse de manejar los casos donde un estado es None si hubo errores.
     try:
-         # Reemplazar solo los elementos en poblacion_shared con los estados válidos de next_poblacion_states
          # Mantener el estado original si next_poblacion_states[i] es None
          for i in range(pop_size):
               if next_poblacion_states[i] is not None:
                    poblacion_shared[i] = next_poblacion_states[i]
               # Si next_poblacion_states[i] es None, poblacion_shared[i] mantiene su valor previo (que podría ser None).
-
-         # Asegurarse de que la población final de este paso CH esté cuadrada globalmente
          # Convertir a lista de listas mutable para cuadrar, excluyendo los None
          poblacion_mutable_for_cuadra = [list(b) for b in poblacion_shared if b is not None]
 
@@ -457,7 +405,6 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
                             poblacion_shared[i] = None # O mantener el estado anterior si posible
          else:
               # Si no hay alineamientos válidos para cuadrar, la población compartida podría quedar con None
-              # Asegurarse de que tenga el tamaño esperado (pop_size) incluso si son todos None
               while len(poblacion_shared) < pop_size: poblacion_shared.append(None)
               poblacion_shared[:] = poblacion_shared[:pop_size] # Truncar si por alguna razón es más larga
 
@@ -466,18 +413,10 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
          print(f"Error actualizando poblacion_shared o cuadrando al final del paso CH {step_label}: {e}")
          import traceback
          traceback.print_exc()
-         # Si falla la actualización o cuadratura, el estado de la población puede ser inconsistente.
-         # Considerar si detener la ejecución aquí. Por ahora, continuamos, pero se registra el fallo.
-         # Marcar el paso como fallido.
-         # Asegurarse de que salud_acumulada tenga el tamaño correcto antes de retornar
          while len(salud_acumulada) < pop_size: salud_acumulada.append(-float('inf'))
          while len(salud_acumulada) > pop_size: salud_acumulada.pop()
          return False, historial_mejor_fitness[-1] if historial_mejor_fitness else -float('inf'), globalNFE_shared.value if globalNFE_shared else -1
 
-
-    # Recalcular el fitness TOTAL (Blosum + Interacción) para la población *actualizada y cuadrada*
-    # Es CRUCIAL llamar a evaluate_population aquí para actualizar tablaFitness
-    # antes de usarla para acumular salud.
     current_total_fitnesses = evaluate_population(op_bacterial, poblacion_shared)
 
     current_nfe_val = globalNFE_shared.value if globalNFE_shared else -1
@@ -495,7 +434,6 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
 
     else:
         # Acumular el fitness total de los estados *finales* de este paso CH en la salud de cada bacteria
-        # Asegurarse de que salud_acumulada y current_total_fitnesses tengan el mismo tamaño
         if len(salud_acumulada) == len(current_total_fitnesses):
              for i in range(pop_size):
                   if np.isfinite(current_total_fitnesses[i]): # Solo sumar si el fitness es finito
@@ -505,10 +443,6 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
                        pass
         else:
              print(f"Advertencia: Tamaños inconsistentes de salud_acumulada ({len(salud_acumulada)}) y current_total_fitnesses ({len(current_total_fitnesses)}) al actualizar salud.")
-             # Reiniciar salud_acumulada o intentar alinear si es posible.
-             # Por simplicidad, emitimos advertencia y continuamos, la salud puede ser inconsistente.
-
-
         # Encontrar el mejor fitness TOTAL en la población actualizada para reportar en este paso CH
         # Filtrar valores no finitos antes de encontrar el máximo
         finite_fitnesses = [f for f in current_total_fitnesses if np.isfinite(f)]
@@ -522,8 +456,6 @@ def run_chemotaxis_step(op_bacterial: bacteria, poblacion_shared: List,
 
 
         success_status = True # El paso fue exitoso si se obtuvieron fitnesses totales.
-
-
     # Imprimir progreso si corresponde
     # Define and initialize total_global_chemotactic_steps if not already defined
     if 'total_global_chemotactic_steps' not in globals():
@@ -543,9 +475,6 @@ def run_reproduction_step(poblacion_shared: List, salud_bacterias: List[float], 
     """Executes the standard BFOA reproduction step."""
     print(f"\n  --- Realizando Reproducción ({step_label}) ---")
     try:
-        # Crear una lista de pares (salud, índice) y ordenar por salud (mayor es mejor)
-        # Filtrar bacterias con salud no finita si es necesario, o asegurarse de que el sorting los maneje bien (-inf al final)
-        # Asegurarse de que salud_bacterias tenga el tamaño correcto antes de ordenar
         if len(salud_bacterias) != pop_size:
              print(f"Advertencia: Tamaño de salud_bacterias ({len(salud_bacterias)}) no coincide con pop_size ({pop_size}) en Reproducción. No se puede reproducir correctamente.")
              # No realizar reproducción si los datos de salud son inconsistentes
@@ -554,10 +483,6 @@ def run_reproduction_step(poblacion_shared: List, salud_bacterias: List[float], 
 
         bacterias_con_salud = sorted(enumerate(salud_bacterias), key=lambda x: x[1], reverse=True)
 
-        # Filtrar los que tengan salud no finita para la reproducción, o manejar -inf en el sorting.
-        # El sorting de Python maneja -inf colocándolos al final si reverse=True.
-        # Si todos son -inf, bacterias_con_salud tendrá los índices en algún orden, y num_padres/num_reemplazados funcionará.
-        # Si la lista está vacía después del sorting (todos None o error), salir.
         if not bacterias_con_salud:
              print("Error: No hay datos de salud válidos para realizar la reproducción.")
              # Mantener la población compartida como está y salir.
@@ -582,7 +507,6 @@ def run_reproduction_step(poblacion_shared: List, salud_bacterias: List[float], 
                  # print(f"Advertencia: Índice original {original_idx} fuera de rango o bacteria es None durante la copia en reproducción. Copiando None.")
                  nueva_poblacion_temp[i] = None # Copiar None si el original es inválido
 
-
         # Reemplazar la peor mitad con duplicados de la mejor mitad
         for i in range(num_reemplazados):
             # Usar el operador módulo para ciclar a través de los mejores padres
@@ -596,16 +520,13 @@ def run_reproduction_step(poblacion_shared: List, salud_bacterias: List[float], 
                  # print(f"Advertencia: Índice padre {parent_original_idx} fuera de rango o padre es None durante la duplicación en reproducción. Copiando None.")
                  nueva_poblacion_temp[num_padres + i] = None # Copiar None si el padre es inválido
 
-
         # Actualizar la población compartida con la nueva población generada
         # Asegurarse de que la lista tenga el tamaño correcto (pop_size)
         while len(nueva_poblacion_temp) < pop_size: nueva_poblacion_temp.append(None)
         poblacion_shared[:] = nueva_poblacion_temp[:pop_size]
 
-
         valid_reproduced = sum(1 for b in poblacion_shared if b is not None)
         print(f"    Reproducción completada. {num_padres} bacterias mejores duplicadas para reemplazar a {num_reemplazados} peores. {valid_reproduced}/{pop_size} alineamientos válidos en la población.")
-
 
     except IndexError:
         print(f"Error de índice durante la reproducción ({step_label}).")
@@ -649,9 +570,7 @@ def run_elimination_dispersal_step(poblacion_shared: List, op_bacterial: bacteri
             if best_current_idx != -1 and i == best_current_idx:
                 # print(f"    Protegiendo bacteria {i} (la mejor) de eliminación/dispersión.") # Debug print
                 continue
-
             # Seleccionar bacterias para eliminación/dispersión basándose en la probabilidad
-            # Usar random.random() < elim_prob para la selección probabilística
             if random.random() < elim_prob:
                 indices_a_reemplazar.append(i)
 
@@ -659,16 +578,11 @@ def run_elimination_dispersal_step(poblacion_shared: List, op_bacterial: bacteri
 
         if bacterias_eliminadas > 0:
             print(f"    {bacterias_eliminadas} bacterias seleccionadas para reemplazo aleatorio.")
-            # Modificar la lista compartida directamente ya que los índices son determinísticos
-            # O crear una copia temporal y luego asignar de vuelta.
-            # Asignar directamente a la lista compartida en los índices seleccionados:
             num_reemplazados_exitosos = 0
             for i in indices_a_reemplazar:
                 # Asegurarse de que el índice esté dentro del rango
                 if 0 <= i < len(poblacion_shared):
                     try:
-                        # Generar un nuevo alineamiento aleatorio usando el método en bacteria.py
-                        # initialize_random_bacteria devuelve una tupla de tuplas o None
                         nueva_bacteria_tuple = op_bacterial.initialize_random_bacteria(base_seqs)
                         if nueva_bacteria_tuple is not None:
                              poblacion_shared[i] = nueva_bacteria_tuple
@@ -717,16 +631,12 @@ def run_elimination_dispersal_step(poblacion_shared: List, op_bacterial: bacteri
 def process_final_results(history_fitness: List[float], history_nfe: List[float],
                          poblacion_final: List, op_bacterial: bacteria, pop_size: int
                          ) -> Tuple[float, int, float, pd.DataFrame]:
-    """Processes and summarizes the final results of the optimization run."""
     print("\n--- Procesando Resultados Finales ---")
 
     final_nfe = history_nfe[-1] if history_nfe else 0
     # El mejor fitness global es el máximo en todo el historial registrado de mejores fitness por paso CH
     best_overall_fitness_history = max(history_fitness) if history_fitness else -float('inf')
     total_steps_recorded = len(history_fitness)
-
-    # Re-evaluar la población final una última vez para obtener el fitness más actual
-    # Esto es importante por si la última etapa de ED modificó la población pero no se re-evaluó completamente.
     print("    Evaluando fitness de la población final para obtener el mejor alineamiento...")
     final_fitnesses_pop = evaluate_population(op_bacterial, poblacion_final)
 
@@ -756,7 +666,6 @@ def process_final_results(history_fitness: List[float], history_nfe: List[float]
     print(f"Total NFE: {final_nfe}")
 
     # Crear DataFrame para guardar los resultados paso a paso
-    # Asegurarse de que las listas tengan la misma longitud antes de crear el DataFrame
     min_len = min(len(history_fitness), len(history_nfe))
     df_results = pd.DataFrame({
         'Paso_Quimiotactico_Global': list(range(min_len)),
@@ -765,16 +674,9 @@ def process_final_results(history_fitness: List[float], history_nfe: List[float]
     })
 
     print(f"\nResumen de Resultados (Total Pasos Quimiotácticos Registrados: {min_len -1 if min_len > 0 else 0}):")
-    # Ajustar la visualización del DataFrame si es muy grande
-    # pd.set_option('display.max_rows', 10)
     print(df_results.head())
     print("...")
     print(df_results.tail())
-    # pd.reset_option('display.max_rows')
-
-
-    # Retornar el mejor fitness de la población final (para guardar el alineamiento), su índice,
-    # el mejor fitness encontrado en todo el historial, y el DataFrame.
     return final_best_fitness_pop, final_best_idx_pop, best_overall_fitness_history, df_results
 
 
@@ -916,10 +818,6 @@ def save_best_alignment_to_fasta(op_bacterial: bacteria, best_idx: int, poblacio
 
 # --- Entry Point ---
 if __name__ == "__main__":
-    # Limpiar variables globales compartidas si es necesario (útil en entornos interactivos)
-    # Esto no suele ser necesario en la ejecución normal de un script.
-    # globalNFE_shared = None
-
     # Inicializar historial_mejor_fitness como una lista vacía
     historial_mejor_fitness = []
 
