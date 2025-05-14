@@ -36,13 +36,17 @@ Ped_inicial = 0.25     # Initial Elimination-Dispersal Probability
 Ped_final = 0.01       # Final Elimination-Dispersal Probability
 
 # --- Other Parameters ---
-TUMBO_GAPS = 2 # Gaps to insert/delete during a tumble (esto podría ser más sofisticado)
-# Parámetros de Interacción (Ahora gestionados en la clase bacteria)
-D_ATTRACT = 0.1 # Ya no es una constante global
-W_ATTRACT = 0.2 # Ya no es una constante global
-H_REPEL = 0.1 # Ya no es una constante global
-W_REPEL = 0.1 # Ya no es una constante global
+Ped_inicial = 0.25     # Initial Elimination-Dispersal Probability
+Ped_final = 0.01       # Final Elimination-Dispersal Probability
 
+# --- Other Parameters ---
+TUMBO_GAPS = 2 # Gaps to insert/delete during a tumble
+
+
+D_ATTRACT = 0.3  # Mantener igual que en el mejor conjunto base
+W_ATTRACT = 0.1  # Mantener igual que en el mejor conjunto base
+H_REPEL = 0.05 # Mantener igual que en el mejor conjunto base
+W_REPEL = 0.2  # Mantener igual que en el mejor conjunto base
 PRINT_INTERVAL_CH = 5 # Intervalo más frecuente para imprimir progreso quimiotáctico
 PLOT_MARKER_SIZE = 3 # Tamaño de los marcadores en las gráficas
 PLOT_TITLE_SUFFIX = "BFOA Corregido v1.1" # Sufijo para títulos de gráficas y archivos (incrementamos versión)
@@ -855,34 +859,35 @@ if __name__ == "__main__":
                     success, best_fitness, current_nfe = run_chemotaxis_step(
                         op_bacterial, poblacion_shared, len(sequences), TUMBO_GAPS, Ns, salud_acumulada, step_label
                     )
-                    if not success:
+                    if success:
+                        historial_mejor_fitness.append(best_fitness)
+                        historial_nfe.append(current_nfe)
+                    else:
                         print(f"Step {step_label} failed. Skipping to next step.")
                         continue
+        # Perform reproduction only if there is a significant improvement in fitness
+        if len(historial_mejor_fitness) > 1 and best_fitness > historial_mejor_fitness[-2]:
+            run_reproduction_step(poblacion_shared, salud_acumulada, S, op_bacterial, f"ED{ed_cycle + 1}_RE{re_cycle + 1}")
+        else:
+            print(f"Skipping reproduction for {step_label} due to insufficient fitness improvement.")
 
-                    # Record the best fitness and NFE
-                    historial_mejor_fitness.append(best_fitness)
-                    historial_nfe.append(current_nfe)
+        # Perform elimination-dispersal with adaptive probability
+        Ped_actual = max(Ped_final, Ped_inicial - (ed_cycle / (Ned - 1)) * (Ped_inicial - Ped_final))
+        run_elimination_dispersal_step(poblacion_shared, op_bacterial, S, Ped_actual, sequences, len(sequences), f"ED{ed_cycle + 1}")
 
-                # Perform reproduction
-                run_reproduction_step(poblacion_shared, salud_acumulada, S, op_bacterial, f"ED{ed_cycle + 1}_RE{re_cycle + 1}")
+        # Process final results only once at the end of all cycles
+        if ed_cycle == Ned - 1 and re_cycle == Nre - 1:
+            final_best_fitness, final_best_idx, best_overall_fitness, df_results = process_final_results(
+                historial_mejor_fitness, historial_nfe, poblacion_shared, op_bacterial, S
+            )
 
-            # Perform elimination-dispersal
-            Ped_actual = Ped_inicial - (ed_cycle / (Ned - 1)) * (Ped_inicial - Ped_final)
-            run_elimination_dispersal_step(poblacion_shared, op_bacterial, S, Ped_actual, sequences, len(sequences), f"ED{ed_cycle + 1}")
+            # Save results
+            save_results_to_csv(df_results, OUTPUT_CSV)
+            save_best_alignment_to_fasta(op_bacterial, final_best_idx, poblacion_shared, seq_names, OUTPUT_FASTA)
 
-        # Process final results
-        final_best_fitness, final_best_idx, best_overall_fitness, df_results = process_final_results(
-            historial_mejor_fitness, historial_nfe, poblacion_shared, op_bacterial, S
-        )
-
-        # Save results
-        save_results_to_csv(df_results, OUTPUT_CSV)
-        save_best_alignment_to_fasta(op_bacterial, final_best_idx, poblacion_shared, seq_names, OUTPUT_FASTA)
-
-        # Plot results
-        plot_results(df_results, historial_nfe[-1] if historial_nfe else 0, best_overall_fitness, PLOT_TITLE_SUFFIX)
-
-        print("BFOA algorithm completed.")
+            # Plot results
+            plot_results(df_results, historial_nfe[-1] if historial_nfe else 0, best_overall_fitness, PLOT_TITLE_SUFFIX)
+            print("BFOA algorithm completed.")
 
     if __name__ == "__main__":
         main()
